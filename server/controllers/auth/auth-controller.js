@@ -2,23 +2,24 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../../models/User");
 
-//register
+// Register
 const registerUser = async (req, res) => {
   const { userName, email, password } = req.body;
 
   try {
-    const checkUser = await User.findOne({ email });
-    if (checkUser)
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.json({
         success: false,
-        message: "User Already exists with the same email! Please try again",
+        message: "User already exists with this email!",
       });
+    }
 
-    const hashPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 12);
     const newUser = new User({
       userName,
       email,
-      password: hashPassword,
+      password: hashedPassword,
     });
 
     await newUser.save();
@@ -26,69 +27,73 @@ const registerUser = async (req, res) => {
       success: true,
       message: "Registration successful",
     });
-  } catch (e) {
-    console.log(e);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({
       success: false,
-      message: "Some error occured",
+      message: "Something went wrong!",
     });
   }
 };
 
-//login
+// Login
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const checkUser = await User.findOne({ email });
-    if (!checkUser)
+    const user = await User.findOne({ email });
+    if (!user) {
       return res.json({
         success: false,
-        message: "User doesn't exists! Please register first",
+        message: "User doesn't exist! Please register.",
       });
+    }
 
-    const checkPasswordMatch = await bcrypt.compare(
-      password,
-      checkUser.password
-    );
-    if (!checkPasswordMatch)
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       return res.json({
         success: false,
-        message: "Incorrect password! Please try again",
+        message: "Incorrect password!",
       });
+    }
 
     const token = jwt.sign(
       {
-        id: checkUser._id,
-        role: checkUser.role,
-        email: checkUser.email,
-        userName: checkUser.userName,
+        id: user._id,
+        role: user.role,
+        email: user.email,
+        userName: user.userName,
       },
-      "CLIENT_SECRET_KEY",
+      process.env.JWT_SECRET,
       { expiresIn: "60m" }
     );
 
-    res.cookie("token", token, { httpOnly: true, secure: false }).json({
-      success: true,
-      message: "Logged in successfully",
-      user: {
-        email: checkUser.email,
-        role: checkUser.role,
-        id: checkUser._id,
-        userName: checkUser.userName,
-      },
-    });
-  } catch (e) {
-    console.log(e);
+    res
+      .cookie("token", token, {
+        httpOnly: true,
+        secure: false, // set to true in production with HTTPS
+        sameSite: "lax",
+      })
+      .json({
+        success: true,
+        message: "Logged in successfully",
+        user: {
+          email: user.email,
+          role: user.role,
+          id: user._id,
+          userName: user.userName,
+        },
+      });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({
       success: false,
-      message: "Some error occured",
+      message: "Login failed. Try again!",
     });
   }
 };
 
-//logout
-
+// Logout
 const logoutUser = (req, res) => {
   res.clearCookie("token").json({
     success: true,
@@ -96,23 +101,24 @@ const logoutUser = (req, res) => {
   });
 };
 
-//auth middleware
+// Auth Middleware
 const authMiddleware = async (req, res, next) => {
   const token = req.cookies.token;
-  if (!token)
+  if (!token) {
     return res.status(401).json({
       success: false,
-      message: "Unauthorised user!",
+      message: "Unauthorized access!",
     });
+  }
 
   try {
-    const decoded = jwt.verify(token, "CLIENT_SECRET_KEY");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch (err) {
     res.status(401).json({
       success: false,
-      message: "Unauthorised user!",
+      message: "Invalid or expired token!",
     });
   }
 };
